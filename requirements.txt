@@ -1,0 +1,8 @@
+numpy==1.26.4
+scipy==1.15.3
+scikit-learn==1.7.2
+pyedflib==0.1.42
+transformers==4.49.0
+mamba-ssm==2.2.4
+causal-conv1d==1.5.0.post8
+pytest==8.3.5
