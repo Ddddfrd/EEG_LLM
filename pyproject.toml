@@ -20,7 +20,10 @@ py-modules = ["project_config"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ai*"]
+include = ["ai*", "good*"]
+
+[tool.setuptools.package-data]
+"ai.v2" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

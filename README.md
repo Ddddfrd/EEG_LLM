@@ -1,8 +1,21 @@
 # EEG_LLM
 
-Research training pipeline for seizure detection with direct EEGMamba visual
-tokens, Qwen2.5 LoRA, and patient-relative spectral features. This repository
-contains research code only and is not a medical device.
+Research training pipelines for seizure detection with EEG encoders, Qwen2.5
+LoRA, and patient-relative spectral features. This repository contains research
+code only and is not a medical device.
+
+## Available Model Families
+
+1. **Mamba-C**: 72 direct EEGMamba tokens, Qwen2.5-0.5B Q/V LoRA, and an E2
+   patient-relative spectral residual. This remains the original pipeline.
+2. **E1+E2 STFT-64**: STFT-64 EfficientNet-B0 visual tokens, Qwen Q/V LoRA,
+   a visual residual, and an E2 relative-baseline residual.
+3. **E1+E2+E3+E4 full-band**: full-band STFT EfficientNet-Qwen with direct,
+   ungated E2 relative-spectrum, E3 transient-spike, and E4 band-ratio residuals.
+
+The retained EfficientNet-Qwen baselines and training entry points are under
+`good/`. See `good/README.md` for architecture contracts, commands, historical
+metrics, and checkpoint identities. Generated weights remain excluded.
 
 ## Architecture
 

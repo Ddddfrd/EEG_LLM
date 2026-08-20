@@ -1,0 +1,19 @@
+{
+  "schema_version": "eeg_bands_v1",
+  "edge_policy": "low_inclusive_high_exclusive",
+  "bands": [
+    {"name": "delta", "low_hz": 1.0, "high_hz": 4.0},
+    {"name": "theta", "low_hz": 4.0, "high_hz": 8.0},
+    {"name": "alpha", "low_hz": 8.0, "high_hz": 13.0},
+    {"name": "beta", "low_hz": 13.0, "high_hz": 30.0},
+    {"name": "gamma", "low_hz": 30.0, "high_hz": 100.0},
+    {"name": "hfo", "low_hz": 80.0, "high_hz": 500.0}
+  ],
+  "history": [
+    {
+      "version": "eeg_bands_v1",
+      "date": "2026-07-14",
+      "change": "Established the deployed v2 boundaries as the canonical project contract."
+    }
+  ]
+}

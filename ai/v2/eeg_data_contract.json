@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "required_signal": {
+    "data": "Numeric channels-by-time matrix",
+    "freq": "Single positive sampling-rate value in Hz",
+    "unit": "uV or adc_counts",
+    "reference": "Acquisition reference description",
+    "gain": "Positive amplifier gain"
+  },
+  "conditional_signal": {
+    "microvolts_per_count": "Required when unit is adc_counts"
+  },
+  "model_window": {
+    "sample_rate_hz": 5000,
+    "timepoints": 5000,
+    "duration_seconds": 1
+  },
+  "feature_schema": {
+    "version": "eeg_features_welch_v2",
+    "psd": "Hann-window Welch, 2500 samples, 50% overlap, constant detrend, density scaling",
+    "band_schema": "ai/v2/band_schema.json (eeg_bands_v1)",
+    "band_power": "sum of PSD bins times frequency resolution for each [low, high) interval",
+    "model_feature": "log1p of integrated band power"
+  },
+  "legacy_policy": "Missing unit, gain, or reference is recorded as legacy_unspecified. Such clips may be inspected but are not eligible for automatic pseudo-label replay.",
+  "quality_control": {
+    "reject_when": "At least 25% of channels are flat or rail-clipped",
+    "flags": [
+      "flat_channels",
+      "clipped_channels",
+      "abrupt_step_channels",
+      "extreme_amplitude_channels"
+    ],
+    "known_unit_extreme_threshold_uV": 5000
+  }
+}

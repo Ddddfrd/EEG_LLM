@@ -111,6 +111,6 @@ def test_mamba_c_freezes_qwen_base_but_trains_lora_and_backbone() -> None:
     model, language = build_model()
 
     assert not language.embedding.weight.requires_grad
-    assert not language.q_proj.base.weight.requires_grad
+    assert not language.q_proj.base_layer.weight.requires_grad
     assert language.q_proj.lora_a.requires_grad
     assert all(parameter.requires_grad for parameter in model.backbone.parameters())
