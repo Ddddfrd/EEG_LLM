@@ -43,13 +43,14 @@ def build_model(
     qwen_model_name: str = DEFAULT_QWEN_MODEL,
     local_files_only: bool = True,
     pretrained_visual_encoder: bool = True,
+    stft_config_override: ServerSTFTConfig | None = None,
 ) -> EEGVLE1E2E3E4Classifier:
     """Build the ungated E1/E2/E3/E4 additive residual classifier."""
     return EEGVLE1E2E3E4Classifier.from_pretrained(
         qwen_model_name=qwen_model_name,
         local_files_only=local_files_only,
         pretrained_visual_encoder=pretrained_visual_encoder,
-        stft_config=stft_config(),
+        stft_config=stft_config_override or stft_config(),
         lora_config=LoRAConfig(
             rank=8,
             alpha=16.0,

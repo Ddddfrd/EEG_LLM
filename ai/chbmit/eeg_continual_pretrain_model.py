@@ -61,8 +61,10 @@ class ServerSTFTConfig:
     def validate(self) -> None:
         if self.sampling_frequency_hz < 1 or self.input_samples < 1:
             raise ValueError("Invalid STFT sampling contract")
-        if self.source_channels != 18 or self.eeg_channels != 20:
-            raise ValueError("Server reproduction requires 18-to-20 channels")
+        if (self.source_channels, self.eeg_channels) not in {(18, 20), (20, 20)}:
+            raise ValueError(
+                "Server reproduction requires adapted 18-to-20 or direct 20 channels"
+            )
         if not 0 < self.win_length <= self.n_fft:
             raise ValueError("win_length must be inside n_fft")
         if self.hop_length < 1 or self.visual_tokens < 1:
@@ -115,7 +117,13 @@ class Canonical18ToServer20(nn.Module):
         repeated_t8_p8 = values[:, 14:15]
         return torch.cat([values, p7_t7, repeated_t8_p8], dim=1).unsqueeze(1)
 
-    def contract(self) -> dict[str, Any]:
+    def contract(self, *, source_channels: int = 18) -> dict[str, Any]:
+        if source_channels == 20:
+            return {
+                "source_channels": 20,
+                "output_channels": 20,
+                "status": "direct_20_channel_passthrough",
+            }
         return {
             "source_channels": list(SERVER_SOURCE_CHANNELS),
             "output_channels": list(SERVER_ADAPTED_CHANNELS),
@@ -157,7 +165,10 @@ class ServerSTFTEfficientNetEncoder(nn.Module):
         adapted = self.channel_adapter(waveform)
         batch, _, channels, samples = adapted.shape
         if channels != self.config.eeg_channels:
-            raise ValueError("Channel adapter did not produce 20 channels")
+            raise ValueError(
+                f"Channel adapter produced {channels}, expected "
+                f"{self.config.eeg_channels} channels"
+            )
         if samples != self.config.input_samples:
             raise ValueError(
                 f"Expected {self.config.input_samples} samples, got {samples}"
@@ -527,7 +538,9 @@ class ServerEEGVLPretrainModel(nn.Module):
             "visual_bypass": self.visual_bypass,
             "relative_spectral_bypass": self.relative_spectral_bypass,
             "stft": self.visual_encoder.config.to_dict(),
-            "channel_adapter": self.visual_encoder.channel_adapter.contract(),
+            "channel_adapter": self.visual_encoder.channel_adapter.contract(
+                source_channels=self.visual_encoder.config.source_channels
+            ),
             "lora": {
                 **self.lora_config.to_dict(),
                 "injected_modules": list(self.lora_module_names),

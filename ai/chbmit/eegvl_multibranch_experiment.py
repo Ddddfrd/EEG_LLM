@@ -85,6 +85,7 @@ class MultibranchTrainingConfig:
     gradient_clip_norm: float = 1.0
     minimum_evaluation_recall: float = 0.6
     enrollment_baseline_windows: int = 128
+    checkpoint_metric: str = "auprc"
     num_workers: int = 0
 
     def validate(self) -> None:
@@ -114,6 +115,8 @@ class MultibranchTrainingConfig:
             raise ValueError("minimum_evaluation_recall must be in [0, 1]")
         if self.enrollment_baseline_windows < 1:
             raise ValueError("enrollment_baseline_windows must be positive")
+        if self.checkpoint_metric not in {"auroc", "auprc"}:
+            raise ValueError("checkpoint_metric must be auroc or auprc")
 
     @property
     def accumulation_steps(self) -> int:
@@ -222,6 +225,11 @@ def train_multibranch(
     best_evaluation: dict[str, Any] | None = None
     best_epoch = 0
     best_score = float("-inf")
+    secondary_metric = "auprc" if config.checkpoint_metric == "auroc" else "auroc"
+    secondary_state: dict[str, torch.Tensor] | None = None
+    secondary_evaluation: dict[str, Any] | None = None
+    secondary_epoch = 0
+    secondary_score = float("-inf")
     optimizer_steps = 0
     minibatches = 0
     started = time.perf_counter()
@@ -259,15 +267,26 @@ def train_multibranch(
 
         evaluation = evaluate_epoch(model)
         pooled = evaluation["pooled_metrics"]
-        score = pooled["auprc"]
-        if score is None:
-            raise ValueError("Validation AUPRC is undefined")
-        improved = float(score) > best_score + 1e-12
+        scores = {
+            "auroc": pooled["auroc"],
+            "auprc": pooled["auprc"],
+        }
+        if any(value is None for value in scores.values()):
+            raise ValueError("Validation AUROC/AUPRC is undefined")
+        score = float(scores[config.checkpoint_metric])
+        current_secondary_score = float(scores[secondary_metric])
+        improved = score > best_score + 1e-12
+        secondary_improved = current_secondary_score > secondary_score + 1e-12
         if improved:
-            best_score = float(score)
+            best_score = score
             best_epoch = epoch
             best_state = portable_multibranch_state_dict(model)
             best_evaluation = evaluation
+        if secondary_improved:
+            secondary_score = current_secondary_score
+            secondary_epoch = epoch
+            secondary_state = portable_multibranch_state_dict(model)
+            secondary_evaluation = evaluation
         history.append(
             {
                 "epoch": epoch,
@@ -287,6 +306,10 @@ def train_multibranch(
                     for subject, metrics in evaluation["patient_metrics"].items()
                 },
                 "selected": improved,
+                "selected_metrics": {
+                    config.checkpoint_metric: improved,
+                    secondary_metric: secondary_improved,
+                },
                 "learning_rates": {
                     str(group["group_name"]): float(group["lr"])
                     for group in optimizer.param_groups
@@ -297,18 +320,28 @@ def train_multibranch(
             f"E1+E2+E3+E4 epoch {epoch}/{config.max_epochs}: "
             f"loss={history[-1]['training_loss']:.6f}, "
             f"val_auroc={float(pooled['auroc']):.6f}, "
-            f"val_auprc={float(score):.6f}, selected={improved}",
+            f"val_auprc={float(pooled['auprc']):.6f}, "
+            f"selected_{config.checkpoint_metric}={improved}, "
+            f"selected_{secondary_metric}={secondary_improved}",
             flush=True,
         )
 
     if best_state is None or best_evaluation is None:
         raise RuntimeError("Multibranch training produced no checkpoint")
+    if secondary_state is None or secondary_evaluation is None:
+        raise RuntimeError("Multibranch training produced no secondary checkpoint")
     load_portable_multibranch_state_dict(model, best_state)
     return {
         "best_state_dict": best_state,
         "best_epoch": best_epoch,
         "best_score": best_score,
         "best_evaluation": best_evaluation,
+        "best_metric": config.checkpoint_metric,
+        "secondary_state_dict": secondary_state,
+        "secondary_epoch": secondary_epoch,
+        "secondary_score": secondary_score,
+        "secondary_evaluation": secondary_evaluation,
+        "secondary_metric": secondary_metric,
         "history": history,
         "precision": precision,
         "minibatches": minibatches,
@@ -555,7 +588,12 @@ def run_multibranch_fold0(
     public_training = {
         key: value
         for key, value in training.items()
-        if key not in {"best_state_dict", "best_evaluation"}
+        if key not in {
+            "best_state_dict",
+            "best_evaluation",
+            "secondary_state_dict",
+            "secondary_evaluation",
+        }
     }
     body = {
         "schema_version": MULTIBRANCH_EXPERIMENT_SCHEMA_VERSION,

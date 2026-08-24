@@ -101,12 +101,44 @@ optimizer uses separate learning rates:
 The output checkpoint is portable: it includes EEGMamba and task weights plus
 Qwen LoRA parameters, but excludes frozen Qwen base weights.
 
+## Train Scheme C on the EEGMamba Patient Split
+
+The retained Scheme C experiment uses the EEGMamba paper's patient IDs while
+keeping the local E1+E2+E3+E4 architecture and training protocol:
+
+- Train: `chb01`-`chb19`
+- Validation and checkpoint/threshold selection: `chb20`-`chb21`
+- Final untouched test: `chb22`-`chb23`
+- Unused: `chb24`
+- Input: direct 20-channel, 4-second windows at 256 Hz
+- E1 STFT: `n_fft=64`, `win_length=64`, `hop_length=32`
+- E2: per-patient earliest-normal relative spectral baseline
+- E3/E4: transient-spike and band-ratio residuals
+- Training: five epochs with independent AUROC-best and AUPRC-best checkpoints
+
+```bash
+python -m good.e1_e2_e3_e4_fullband.train_scheme_c_eegmamba_split \
+  --reference-artifact /path/to/fold0_pretrain_<hash>.json \
+  --data-root /path/to/chbmit/1.0.0 \
+  --output-dir artifacts/chbmit/scheme_c_eegmamba_split \
+  --shared-cache-dir artifacts/chbmit/good_multibranch_scheme_c_aligned/cache
+```
+
+The reported one-seed independent test result is AUROC `0.9788` and AUPRC
+`0.4176` for the validation-AUPRC-selected checkpoint. See
+`SCHEME_C_EEGMAMBA_SPLIT_RESULTS.md` for thresholds, per-patient metrics,
+false-alarm rates, hashes, and comparison limits. This experiment aligns the
+patient partition only; it is not an EEGMamba architecture reproduction.
+
 ## Main Files
 
 - `ai/chbmit/eegmamba_c.py`: 72-token EEGMamba-Qwen-E2 model.
 - `ai/chbmit/eegmamba_c_experiment.py`: CUDA training and strict Fold 0 evaluation.
 - `ai/chbmit/eegmamba_b.py`: official-checkpoint-compatible EEGMamba backbone.
 - `ai/chbmit/eeg_continual_pretrain_model.py`: STFT, E2, and LoRA components.
+- `ai/chbmit/direct20.py`: deterministic direct 20-channel CHB-MIT mapping.
+- `good/e1_e2_e3_e4_fullband/train_scheme_c_eegmamba_split.py`: five-epoch
+  Scheme C training, validation selection, and independent test entry point.
 - `tests/test_chbmit_eegmamba_c.py`: shape, freezing, and portable-state tests.
 
 The implementation is a hybrid research extension inspired by EEGMamba and

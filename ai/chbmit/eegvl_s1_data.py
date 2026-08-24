@@ -176,9 +176,13 @@ def preprocess_s1_batch(
 ) -> tuple[np.ndarray, int]:
     config.validate()
     values = np.asarray(waveforms_uv, dtype=np.float64)
-    if values.ndim != 3 or values.shape[1:] != (18, 1024):
+    if (
+        values.ndim != 3
+        or values.shape[1] not in {18, 20}
+        or values.shape[2] != 1024
+    ):
         raise ValueError(
-            "Expected S1 waveform batch shaped (batch, 18, 1024)"
+            "Expected S1 waveform batch shaped (batch, 18|20, 1024)"
         )
     finite = np.isfinite(values)
     replacements = int(values.size - np.count_nonzero(finite))

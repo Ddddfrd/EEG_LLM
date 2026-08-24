@@ -76,6 +76,40 @@ C:\ProgramData\anaconda3\Scripts\conda.exe run --no-capture-output -n pytorch `
   python -m good.e1_e2_e3_e4_fullband.train
 ```
 
+## 3. Scheme C with the EEGMamba Patient Split
+
+This is the promoted independent-test configuration. Despite living in the
+historical `fullband` package, this aligned Scheme C entry point uses STFT-64:
+
+- Train: chb01-chb19, sampled approximately 3:7 positive:negative.
+- Validation: complete natural chb20-chb21 timelines.
+- Final test: complete natural chb22-chb23 timelines.
+- chb24 is explicitly unused.
+- Direct 20-channel input, 4 seconds at 256 Hz.
+- E1: `n_fft=64`, `win=64`, `hop=32`, EfficientNet-B0 and Qwen Q/V LoRA.
+- E2/E3/E4 remain direct additive residual branches.
+- E2 uses each patient's earliest 20% known-normal windows, capped at 4,000.
+- Validation independently retains AUROC-best and AUPRC-best checkpoints;
+  each validation threshold is frozen before the final test.
+
+```powershell
+C:\ProgramData\anaconda3\Scripts\conda.exe run --no-capture-output -n pytorch `
+  python -m good.e1_e2_e3_e4_fullband.train_scheme_c_eegmamba_split `
+  --reference-artifact artifacts/chbmit/eeg_continual_pretrain_strict_e2_smoke/fold0_pretrain_c27817a49668.json `
+  --data-root data/chbmit/1.0.0
+```
+
+Preferred AUPRC-selected checkpoint, epoch 3:
+
+- Independent chb22-chb23 AUROC: `0.9788`
+- Independent chb22-chb23 AUPRC: `0.4176`
+- F1 at the chb20-chb21-selected threshold: `0.2514`
+- False-positive windows per negative hour: `11.33`
+
+The source repository excludes raw CHB-MIT data, generated caches, Qwen and
+EfficientNet weights, and output checkpoints. The checked-in result report is
+`SCHEME_C_EEGMAMBA_SPLIT_RESULTS.md` at the repository root.
+
 ## Development Rules
 
 1. Keep these two model families as the only active architecture baselines.

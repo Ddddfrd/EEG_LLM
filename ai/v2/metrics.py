@@ -88,13 +88,40 @@ def find_optimal_threshold_exact(
         raise ValueError("Threshold selection requires both classes")
     if not 0.0 <= min_recall <= 1.0:
         raise ValueError("min_recall must be in [0, 1]")
-    candidates = np.unique(np.concatenate(([0.0], probabilities)))
+    order = np.argsort(probabilities, kind="stable")
+    sorted_probabilities = probabilities[order]
+    sorted_labels = labels[order]
+    thresholds, starts = np.unique(
+        sorted_probabilities,
+        return_index=True,
+    )
+    positive_suffix = np.cumsum(
+        sorted_labels[::-1], dtype=np.int64
+    )[::-1]
+    true_positives = positive_suffix[starts]
+    predicted_positives = labels.size - starts
+    false_positives = predicted_positives - true_positives
+    total_positives = int(np.sum(labels == 1))
+    false_negatives = total_positives - true_positives
+    if thresholds[0] > 0.0:
+        thresholds = np.concatenate(([0.0], thresholds))
+        true_positives = np.concatenate(([total_positives], true_positives))
+        false_positives = np.concatenate(([
+            labels.size - total_positives
+        ], false_positives))
+        false_negatives = np.concatenate(([0], false_negatives))
+
     best: tuple[float, float] | None = None
-    for threshold in candidates:
-        predictions = probabilities >= threshold
-        tp = int(np.sum(predictions & (labels == 1)))
-        fp = int(np.sum(predictions & (labels == 0)))
-        fn = int(np.sum(~predictions & (labels == 1)))
+    for threshold, tp_value, fp_value, fn_value in zip(
+        thresholds,
+        true_positives,
+        false_positives,
+        false_negatives,
+        strict=True,
+    ):
+        tp = int(tp_value)
+        fp = int(fp_value)
+        fn = int(fn_value)
         recall = tp / (tp + fn)
         if recall < min_recall:
             continue
