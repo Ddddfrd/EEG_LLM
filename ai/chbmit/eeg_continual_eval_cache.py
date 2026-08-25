@@ -148,7 +148,7 @@ def _cache_contract(
         "subjects": subjects,
         "subject_order": list(timelines),
         "window_count": offset,
-        "image_shape": [offset, 1, 18, 1024],
+        "image_shape": [offset, 1, len(index["target_montage"]), 1024],
         "image_dtype": "float16",
         "label_dtype": "uint8",
         "row_order": "subject_order_then_timeline_row_order",

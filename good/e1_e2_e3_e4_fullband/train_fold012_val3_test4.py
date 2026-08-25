@@ -340,7 +340,12 @@ def run_experiment(
     public_training = {
         key: value
         for key, value in training.items()
-        if key not in {"best_state_dict", "best_evaluation"}
+        if key not in {
+            "best_state_dict",
+            "best_evaluation",
+            "secondary_state_dict",
+            "secondary_evaluation",
+        }
     }
     body = {
         "schema_version": SCHEMA_VERSION,

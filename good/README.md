@@ -1,9 +1,68 @@
 # Retained EEG-VL Baselines
 
-This directory is the development hub for the two retained EEG-VL baselines.
-The executable factories and training entry points live here. The validated
-core layers remain in `ai/chbmit` and are imported instead of copied, so bug
-fixes do not create two divergent implementations.
+This directory is the development hub for the retained EEG-VL baselines and
+promoted same-protocol candidates. The executable factories and training entry
+points live here. The validated core layers remain in `ai/chbmit` and are
+imported instead of copied, so bug fixes do not create divergent
+implementations.
+
+## Same-Protocol Scheme C Leaderboard
+
+Protocol fixed across this board:
+
+- Train: `chb01-chb19`.
+- Validation and threshold selection: `chb20-chb21`.
+- Final test: `chb22-chb23`; labels are never used for epoch or threshold
+  selection.
+- `chb24` is unused.
+- Five training epochs, seed 42, natural unbalanced validation/test timelines,
+  and pooled metrics across each patient partition.
+- The primary checkpoint is selected only by validation AUPRC. The table is
+  displayed in descending final-test AUPRC after selection.
+
+| Rank | Backbone | Pooling | STFT n/w/h | Micro/effective batch | Selected epoch | Validation AUPRC | Test AUROC | Test AUPRC | Test F1 |
+|---:|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | Qwen2.5-0.5B | `visual_mean` | 128/128/32 | 8/32 | 4 | **0.1344** | **0.9945** | **0.5285** | 0.2489 |
+| 2 | Qwen2.5-0.5B | `visual_mean` | 64/64/32 | 8/32 | 1 | 0.1051 | 0.9915 | 0.5183 | **0.2774** |
+| 3 | ModernBERT-base | `visual_mean` | 64/64/32 | 8/32 | 2 | 0.1101 | 0.9879 | 0.4993 | 0.2474 |
+| 4 | Qwen2.5-0.5B | `visual_attention` | 64/64/32 | 8/32 | 5 | 0.0816 | 0.9923 | 0.4892 | 0.2080 |
+| 5 | Qwen2.5-0.5B | `summary_token` | 64/64/32 | 8/32 | 5 | 0.0801 | 0.9923 | 0.4652 | 0.2065 |
+| 6 | ModernBERT-base | `mean` | 64/64/32 | 32/32 | 2 | 0.1235 | 0.9882 | 0.4375 | 0.2722 |
+| 7 | Qwen2.5-0.5B | `mean` over prompt and visual tokens | 64/64/32 | 32/32 | 3 | 0.1208 | 0.9788 | 0.4176 | 0.2514 |
+
+Promoted Qwen2.5 `visual_mean` implementation:
+
+- Model factory: `good/e1_e2_e3_e4_qwen25_visual_mean/model.py`.
+- Fixed Scheme C training entry point:
+  `good/e1_e2_e3_e4_qwen25_visual_mean/train.py`.
+- Architecture, protocol, result, and reproduction command:
+  `good/e1_e2_e3_e4_qwen25_visual_mean/README.md`.
+
+Current interpretation:
+
+- Qwen2.5 `visual_mean` with STFT `128/128/32` is the current main result. It
+  improves final-test AUPRC from 0.5183 to 0.5285 and AUROC from 0.9915 to
+  0.9945 over the matched `64/64/32` run.
+
+- The `64/64/32` run retains the best test F1 (0.2774 versus 0.2489), so S1 is
+  an AUPRC/AUROC improvement rather than a uniform improvement at the fixed
+  validation-selected threshold.
+
+- `visual_attention` and `summary_token` do not improve over the simpler
+  visual-token mean.
+- The mean-pooling baselines used micro-batch 32, while the pooling ablations
+  used micro-batch 8 with accumulation to 32. EfficientNet BatchNorm therefore
+  makes the pooling comparison close, but not yet a perfectly isolated
+  single-variable ablation.
+- P3/P4 reports and result JSON are mirrored locally; their checkpoints remain
+  on the training server.
+
+Pending same-protocol runs are not ranked until their reports and checkpoints
+are complete:
+
+- ModernBERT-base + `visual_mean`, STFT S1 `128/128/32`: running on the RTX
+  5090 server.
+
 
 ## 1. E1+E2 STFT-64
 
@@ -76,43 +135,9 @@ C:\ProgramData\anaconda3\Scripts\conda.exe run --no-capture-output -n pytorch `
   python -m good.e1_e2_e3_e4_fullband.train
 ```
 
-## 3. Scheme C with the EEGMamba Patient Split
-
-This is the promoted independent-test configuration. Despite living in the
-historical `fullband` package, this aligned Scheme C entry point uses STFT-64:
-
-- Train: chb01-chb19, sampled approximately 3:7 positive:negative.
-- Validation: complete natural chb20-chb21 timelines.
-- Final test: complete natural chb22-chb23 timelines.
-- chb24 is explicitly unused.
-- Direct 20-channel input, 4 seconds at 256 Hz.
-- E1: `n_fft=64`, `win=64`, `hop=32`, EfficientNet-B0 and Qwen Q/V LoRA.
-- E2/E3/E4 remain direct additive residual branches.
-- E2 uses each patient's earliest 20% known-normal windows, capped at 4,000.
-- Validation independently retains AUROC-best and AUPRC-best checkpoints;
-  each validation threshold is frozen before the final test.
-
-```powershell
-C:\ProgramData\anaconda3\Scripts\conda.exe run --no-capture-output -n pytorch `
-  python -m good.e1_e2_e3_e4_fullband.train_scheme_c_eegmamba_split `
-  --reference-artifact artifacts/chbmit/eeg_continual_pretrain_strict_e2_smoke/fold0_pretrain_c27817a49668.json `
-  --data-root data/chbmit/1.0.0
-```
-
-Preferred AUPRC-selected checkpoint, epoch 3:
-
-- Independent chb22-chb23 AUROC: `0.9788`
-- Independent chb22-chb23 AUPRC: `0.4176`
-- F1 at the chb20-chb21-selected threshold: `0.2514`
-- False-positive windows per negative hour: `11.33`
-
-The source repository excludes raw CHB-MIT data, generated caches, Qwen and
-EfficientNet weights, and output checkpoints. The checked-in result report is
-`SCHEME_C_EEGMAMBA_SPLIT_RESULTS.md` at the repository root.
-
 ## Development Rules
 
-1. Keep these two model families as the only active architecture baselines.
+1. Promote active candidates only through the same-protocol leaderboard.
 2. Use the same patient split, preprocessing cache, seed, epoch budget, and
    threshold protocol for every comparison.
 3. Report both AUROC and AUPRC on natural timelines. Never describe AUPRC as

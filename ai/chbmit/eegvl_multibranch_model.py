@@ -75,10 +75,7 @@ class E3E4PhysiologyEncoder(nn.Module):
     def forward(self, waveform_uv: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         expected = (self.config.eeg_channels, self.config.input_samples)
         if waveform_uv.ndim != 3 or tuple(waveform_uv.shape[1:]) != expected:
-            raise ValueError(
-                "E3/E4 waveform must be shaped "
-                f"(batch, {expected[0]}, {expected[1]})"
-            )
+            raise ValueError(f"E3/E4 waveform must be shaped (batch, {expected[0]}, {expected[1]})")
         values = waveform_uv.float()
         centered = values - values.mean(dim=-1, keepdim=True)
         window = torch.hann_window(
@@ -137,9 +134,7 @@ class E3E4PhysiologyEncoder(nn.Module):
             },
             "e4": {
                 "features": self.e4_output_features,
-                "bands_hz": {
-                    name: list(band) for name, band in E4_FREQUENCY_BANDS_HZ.items()
-                },
+                "bands_hz": {name: list(band) for name, band in E4_FREQUENCY_BANDS_HZ.items()},
                 "ratios": [
                     "theta/beta",
                     "delta/alpha",
@@ -175,8 +170,17 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
         pooling: str = "mean",
     ) -> None:
         super().__init__()
-        if pooling not in {"mean", "last"}:
-            raise ValueError("pooling must be mean or last")
+        supported_pooling = {
+            "mean",
+            "last",
+            "visual_mean",
+            "visual_attention",
+            "summary_token",
+        }
+        if pooling not in supported_pooling:
+            raise ValueError(
+                f"pooling must be one of {sorted(supported_pooling)}, got {pooling!r}"
+            )
         if prompt_input_ids.shape != (1, 35):
             raise ValueError("Prompt must contain exactly 35 tokens")
         if visual_encoder.config.zscore_input:
@@ -188,14 +192,27 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
         self.language_model = language_model
         self.visual_encoder = visual_encoder
         hidden_size = int(language_model.get_input_embeddings().embedding_dim)
-        if hidden_size != 896:
-            raise ValueError(f"Expected Qwen hidden size 896, got {hidden_size}")
+        if hidden_size < 1:
+            raise ValueError("Language model hidden size must be positive")
+        self.hidden_size = hidden_size
         with torch.no_grad():
-            prompt_seed = language_model.get_input_embeddings()(
-                prompt_input_ids
-            ).detach().clone()
+            prompt_seed = language_model.get_input_embeddings()(prompt_input_ids).detach().clone()
+        self.prompt_token_count = int(prompt_seed.shape[1])
+        self.visual_token_count = 32
         self.prompt_embeddings = nn.Parameter(prompt_seed)
         self.visual_projection = nn.Linear(visual_encoder.output_dim, hidden_size)
+        self.visual_attention: nn.Linear | None = None
+        self.summary_embedding: nn.Parameter | None = None
+        if pooling == "visual_attention":
+            self.visual_attention = nn.Linear(hidden_size, 1, bias=False)
+            _xavier_linear(self.visual_attention)
+        elif pooling == "summary_token":
+            initializer_range = float(
+                getattr(getattr(language_model, "config", None), "initializer_range", 0.02)
+            )
+            self.summary_embedding = nn.Parameter(
+                torch.empty(1, 1, hidden_size).normal_(mean=0.0, std=initializer_range)
+            )
 
         self.e2_encoder = PatientRelativeSpectrumEncoder(config=visual_encoder.config)
         self.physiology_encoder = E3E4PhysiologyEncoder(config=visual_encoder.config)
@@ -259,8 +276,7 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
                 pretrained=pretrained_visual_encoder,
                 config=config,
             ),
-            lora_config=lora_config
-            or LoRAConfig(target_modules=("q_proj", "v_proj")),
+            lora_config=lora_config or LoRAConfig(target_modules=("q_proj", "v_proj")),
             qwen_model_name=qwen_model_name,
             qwen_revision=revision,
             pooling=pooling,
@@ -280,6 +296,49 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
         *,
         baseline_log_magnitude: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        cls_repr = self.forward_fused_representation(
+            waveform,
+            baseline_log_magnitude=baseline_log_magnitude,
+        )
+        return self.classifier(cls_repr)
+
+    def _pool_qwen_hidden(self, hidden: torch.Tensor) -> torch.Tensor:
+        summary_tokens = 1 if self.pooling == "summary_token" else 0
+        expected_tokens = (
+            self.prompt_token_count + self.visual_token_count + summary_tokens
+        )
+        if hidden.ndim != 3 or hidden.shape[1] != expected_tokens:
+            raise ValueError(
+                f"Qwen hidden must contain {expected_tokens} tokens for "
+                f"pooling={self.pooling!r}"
+            )
+        if self.pooling == "mean":
+            return hidden.mean(dim=1)
+        if self.pooling == "last":
+            return hidden[:, -1]
+
+        visual_start = self.prompt_token_count
+        visual_end = visual_start + self.visual_token_count
+        visual_hidden = hidden[:, visual_start:visual_end]
+        if self.pooling == "visual_mean":
+            return visual_hidden.mean(dim=1)
+        if self.pooling == "visual_attention":
+            if self.visual_attention is None:
+                raise RuntimeError("visual_attention pooling layer is missing")
+            scores = self.visual_attention(visual_hidden).squeeze(-1).float()
+            weights = torch.softmax(scores, dim=1).to(dtype=visual_hidden.dtype)
+            return torch.sum(visual_hidden * weights.unsqueeze(-1), dim=1)
+        if self.pooling == "summary_token":
+            return hidden[:, -1]
+        raise RuntimeError(f"Unsupported pooling mode: {self.pooling!r}")
+
+    def forward_fused_representation(
+        self,
+        waveform: torch.Tensor,
+        *,
+        baseline_log_magnitude: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Return the frozen language-model representation used by the classifier."""
         if baseline_log_magnitude is None:
             raise ValueError("E1+E2+E3+E4 requires baseline_log_magnitude")
         log_magnitude = self.visual_encoder.log_magnitude(waveform)
@@ -287,8 +346,21 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
         projected = self.visual_projection(visual_tokens)
         prompt = self.prompt_embeddings.expand(waveform.shape[0], -1, -1)
         multimodal = torch.cat([prompt, projected], dim=1)
-        if multimodal.shape[1] != 67:
-            raise ValueError("Expected 35 prompt + 32 visual tokens")
+        if self.pooling == "summary_token":
+            if self.summary_embedding is None:
+                raise RuntimeError("summary_token embedding is missing")
+            summary = self.summary_embedding.expand(waveform.shape[0], -1, -1)
+            multimodal = torch.cat([multimodal, summary], dim=1)
+        expected_tokens = (
+            self.prompt_token_count
+            + self.visual_token_count
+            + (1 if self.pooling == "summary_token" else 0)
+        )
+        if multimodal.shape[1] != expected_tokens:
+            raise ValueError(
+                "Unexpected multimodal token count: "
+                f"expected {expected_tokens}, got {multimodal.shape[1]}"
+            )
         attention_mask = torch.ones(
             multimodal.shape[:2],
             dtype=torch.long,
@@ -301,7 +373,7 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
             return_dict=True,
         )
         hidden = outputs.last_hidden_state
-        llm_summary = hidden.mean(dim=1) if self.pooling == "mean" else hidden[:, -1]
+        llm_summary = self._pool_qwen_hidden(hidden)
         llm_repr = torch.tanh(self.head_norm(llm_summary))
 
         e2 = self.e2_encoder(log_magnitude, baseline_log_magnitude.float())
@@ -310,13 +382,8 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
             * self.visual_encoder.config.input_scale_uv
         )
         e3, e4 = self.physiology_encoder(waveform_uv)
-        cls_repr = (
-            llm_repr
-            + self.e2_proj(e2)
-            + self.e3_proj(e3)
-            + self.e4_proj(e4)
-        )
-        return self.classifier(cls_repr)
+        cls_repr = llm_repr + self.e2_proj(e2) + self.e3_proj(e3) + self.e4_proj(e4)
+        return cls_repr
 
     def parameter_summary(self) -> dict[str, int]:
         groups = {
@@ -363,23 +430,29 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
                 "stft": self.visual_encoder.config.to_dict(),
                 "encoder": "ImageNet EfficientNet-B0 features",
                 "visual_tokens": 32,
-                "visual_projection": "Linear(1280,896)",
+                "visual_projection": f"Linear(1280,{self.hidden_size})",
                 "fine_tuning": "end-to-end",
             },
             "e2": {
                 "features": PatientRelativeSpectrumEncoder.output_features,
                 "bands_hz": [list(band) for band in E2_FREQUENCY_BANDS_HZ],
                 "definition": "mean(log1p magnitude - patient rest baseline)",
-                "projection": "Xavier Linear(120,896)",
+                "projection": f"Xavier Linear(120,{self.hidden_size})",
             },
             **self.physiology_encoder.contract(),
             "qwen": {
                 "model_name": self.qwen_model_name,
                 "revision": self.qwen_revision,
                 "frozen_base": True,
-                "prompt_tokens": 35,
-                "visual_tokens": 32,
-                "sequence_tokens": 67,
+                "prompt_tokens": self.prompt_token_count,
+                "visual_tokens": self.visual_token_count,
+                "summary_tokens": 1 if self.pooling == "summary_token" else 0,
+                "sequence_tokens": (
+                    self.prompt_token_count
+                    + self.visual_token_count
+                    + (1 if self.pooling == "summary_token" else 0)
+                ),
+                "hidden_size": self.hidden_size,
                 "pooling": self.pooling,
             },
             "lora": {
@@ -387,10 +460,11 @@ class EEGVLE1E2E3E4Classifier(nn.Module):
                 "injected_modules": list(self.lora_module_names),
             },
             "fusion": (
-                "tanh(LayerNorm(Qwen mean-pool)) + e2_proj + e3_proj + e4_proj"
+                f"tanh(LayerNorm(Qwen {self.pooling})) + "
+                "e2_proj + e3_proj + e4_proj"
             ),
             "gate_fusion": False,
-            "head": "zero-initialized Linear(896,2)",
+            "head": f"zero-initialized Linear({self.hidden_size},2)",
             "parameters": self.parameter_summary(),
         }
 

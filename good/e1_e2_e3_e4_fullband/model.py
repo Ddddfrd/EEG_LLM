@@ -44,6 +44,7 @@ def build_model(
     local_files_only: bool = True,
     pretrained_visual_encoder: bool = True,
     stft_config_override: ServerSTFTConfig | None = None,
+    pooling: str = "mean",
 ) -> EEGVLE1E2E3E4Classifier:
     """Build the ungated E1/E2/E3/E4 additive residual classifier."""
     return EEGVLE1E2E3E4Classifier.from_pretrained(
@@ -57,7 +58,7 @@ def build_model(
             dropout=0.05,
             target_modules=("q_proj", "v_proj"),
         ),
-        pooling="mean",
+        pooling=pooling,
     )
 
 

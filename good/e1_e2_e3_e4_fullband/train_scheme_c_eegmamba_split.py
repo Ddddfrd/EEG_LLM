@@ -16,7 +16,7 @@ import platform
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -40,6 +40,7 @@ from ai.chbmit.eegvl_multibranch_experiment import (
     train_multibranch,
 )
 from ai.chbmit.eegvl_multibranch_model import (
+    EEGVLE1E2E3E4Classifier,
     checkpoint_sha256,
     load_portable_multibranch_state_dict,
 )
@@ -195,6 +196,8 @@ def run_experiment(
     local_files_only: bool = True,
     config: MultibranchTrainingConfig | None = None,
     device: torch.device | None = None,
+    model_builder: Callable[..., EEGVLE1E2E3E4Classifier] = build_model,
+    stft_config_override: ServerSTFTConfig | None = None,
 ) -> dict[str, Any]:
     settings = config or MultibranchTrainingConfig(
         max_epochs=5,
@@ -284,18 +287,19 @@ def run_experiment(
     )
 
     _seed_everything(settings.seed)
-    model = build_model(
+    stft_config = stft_config_override or ServerSTFTConfig(
+        source_channels=20,
+        eeg_channels=20,
+        n_fft=64,
+        win_length=64,
+        hop_length=32,
+        zscore_input=False,
+    )
+    model = model_builder(
         qwen_model_name=qwen_model_name,
         local_files_only=local_files_only,
         pretrained_visual_encoder=True,
-        stft_config_override=ServerSTFTConfig(
-            source_channels=20,
-            eeg_channels=20,
-            n_fft=64,
-            win_length=64,
-            hop_length=32,
-            zscore_input=False,
-        ),
+        stft_config_override=stft_config,
     )
     training_baselines, training_baseline_summary = compute_subject_log_spectral_baselines(
         model.visual_encoder,
