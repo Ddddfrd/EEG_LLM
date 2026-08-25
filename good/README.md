@@ -29,6 +29,7 @@ Protocol fixed across this board:
 | 5 | Qwen2.5-0.5B | `summary_token` | 64/64/32 | 8/32 | 5 | 0.0801 | 0.9923 | 0.4652 | 0.2065 |
 | 6 | ModernBERT-base | `mean` | 64/64/32 | 32/32 | 2 | 0.1235 | 0.9882 | 0.4375 | 0.2722 |
 | 7 | Qwen2.5-0.5B | `mean` over prompt and visual tokens | 64/64/32 | 32/32 | 3 | 0.1208 | 0.9788 | 0.4176 | 0.2514 |
+| 8 | ModernBERT-base | `visual_mean` | 128/128/32 | 8/32 | 4 | 0.1137 | 0.9867 | 0.3825 | 0.2154 |
 
 Promoted Qwen2.5 `visual_mean` implementation:
 
@@ -47,6 +48,8 @@ Current interpretation:
 - The `64/64/32` run retains the best test F1 (0.2774 versus 0.2489), so S1 is
   an AUPRC/AUROC improvement rather than a uniform improvement at the fixed
   validation-selected threshold.
+- ModernBERT `visual_mean` does not benefit from S1: changing STFT from
+  `64/64/32` to `128/128/32` reduces test AUPRC from 0.4993 to 0.3825.
 
 - `visual_attention` and `summary_token` do not improve over the simpler
   visual-token mean.
@@ -56,13 +59,6 @@ Current interpretation:
   single-variable ablation.
 - P3/P4 reports and result JSON are mirrored locally; their checkpoints remain
   on the training server.
-
-Pending same-protocol runs are not ranked until their reports and checkpoints
-are complete:
-
-- ModernBERT-base + `visual_mean`, STFT S1 `128/128/32`: running on the RTX
-  5090 server.
-
 
 ## 1. E1+E2 STFT-64
 
