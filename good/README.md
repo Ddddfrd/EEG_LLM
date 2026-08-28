@@ -6,6 +6,14 @@ points live here. The validated core layers remain in `ai/chbmit` and are
 imported instead of copied, so bug fixes do not create divergent
 implementations.
 
+## Alarm-Policy Research
+
+The isolated temporal alarm-policy package is under
+[good/RL](RL/README.md). It consumes immutable probability timelines from
+the retained model and compares fixed rules, supervised controls, PPO,
+record-grouped GRPO, and GiGPO-style step credit without modifying the EEG
+backbone.
+
 ## Same-Protocol Scheme C Leaderboard
 
 Protocol fixed across this board:

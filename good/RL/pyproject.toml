@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astar-eeg-alarm-policy"
+version = "0.1.0"
+description = "Isolated temporal alarm-policy research for cached EEG probabilities"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8,<4",
+    "numpy>=1.26,<3",
+    "scikit-learn>=1.4,<2",
+]
+
+[project.optional-dependencies]
+rl = [
+    "gymnasium>=0.29,<2",
+    "stable-baselines3>=2.4,<3",
+    "torch>=2.5,<3",
+]
+test = [
+    "pytest>=8,<9",
+    "ruff>=0.9,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["eeg_alarm_policy*"]
+exclude = ["verl-agent-master*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --basetemp=.pytest_tmp"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

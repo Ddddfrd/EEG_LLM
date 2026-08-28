@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+.pytest_tmp/
+.ruff_cache/
+*.py[cod]
+artifacts/
+verl-agent-master/**
+!verl-agent-master/LICENSE
+!verl-agent-master/Notice.txt
+!verl-agent-master/gigpo/
+!verl-agent-master/gigpo/core_gigpo.py
+!verl-agent-master/verl/
+!verl-agent-master/verl/trainer/
+!verl-agent-master/verl/trainer/ppo/
+!verl-agent-master/verl/trainer/ppo/core_algos.py
